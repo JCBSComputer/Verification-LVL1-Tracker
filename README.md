@@ -86,4 +86,4 @@ Verification-LVL1-Tracker/
 
 ## License
 
-MIT
+CC BY-NC-SA 4.0 — see [LICENSE](LICENSE) for details. Commercial use and selling are prohibited.
