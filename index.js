@@ -16,7 +16,7 @@ const GUILD_ID = process.env.GUILD_ID;
 const RULES_CHANNEL_ID = process.env.RULES_CHANNEL_ID;
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const RULES_EMOJI = process.env.RULES_EMOJI || '✅';
-const VERIFY_TIMEOUT_MS = 5 * 60 * 1000;
+const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
 
 const pendingTimeouts = new Map();
 
@@ -26,12 +26,7 @@ function hasRoleAtOrAbove(member) {
   return member.roles.cache.some(r => r.id !== member.guild.id && r.position >= verifiedRole.position);
 }
 
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-});
-
-client.on('guildMemberAdd', async (member) => {
-  if (member.guild.id !== GUILD_ID) return;
+async function sendVerificationPrompt(member) {
   if (hasRoleAtOrAbove(member)) return;
 
   const channel = member.guild.channels.cache.get(RULES_CHANNEL_ID);
@@ -71,7 +66,12 @@ client.on('guildMemberAdd', async (member) => {
         channel.send(`<@${member.id}> was kicked for not verifying in time.`).catch(() => {});
       }
     } catch (err) {
-      if (err.code !== 10007) console.error('Kick failed:', err);
+      if (err.code === 10007) return;
+      if (err.code === 50013) {
+        console.error(`Missing KickMembers permission to kick ${member.user.tag}`);
+        return;
+      }
+      console.error('Kick failed:', err);
     }
   }, VERIFY_TIMEOUT_MS);
 
@@ -90,9 +90,39 @@ client.on('guildMemberAdd', async (member) => {
     await channel.send(`<@${member.id}> has been verified!`);
   });
 
-  collector.on('end', (collected) => {
+  collector.on('end', () => {
     pendingTimeouts.delete(member.id);
   });
+}
+
+client.once('ready', async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) {
+    console.error('Guild not found');
+    return;
+  }
+
+  await guild.members.fetch();
+  const unverified = guild.members.cache.filter(
+    m => !m.user.bot && !hasRoleAtOrAbove(m)
+  );
+
+  console.log(`Found ${unverified.size} unverified member(s). Sending verification prompts...`);
+  for (const [, member] of unverified) {
+    try {
+      await sendVerificationPrompt(member);
+    } catch (err) {
+      console.error(`Failed to send prompt to ${member.user.tag}:`, err.message);
+    }
+  }
+});
+
+client.on('guildMemberAdd', async (member) => {
+  if (member.guild.id !== GUILD_ID) return;
+  if (member.user.bot) return;
+  await sendVerificationPrompt(member);
 });
 
 client.login(TOKEN);
